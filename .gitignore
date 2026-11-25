@@ -1,0 +1,14 @@
+# Runtime private data (accounts, signing secret, per-user bookings/workspaces, feedback)
+data/
+
+# Dependencies & logs
+node_modules/
+npm-debug.log*
+*.log
+
+# Environment & OS files
+.env
+.env.*
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,10 @@
+{
+  "name": "clinica-estetica-preview",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rafaela Salvato - Dermatologia Especializada (Preview Local)",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  }
+}
