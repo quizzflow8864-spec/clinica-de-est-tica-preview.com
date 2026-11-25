@@ -2,7 +2,10 @@
   "name": "clinica-estetica-preview",
   "version": "1.0.0",
   "private": true,
-  "description": "Rafaela Salvato - Dermatologia Especializada (Preview Local)",
+  "description": "Clínica de Estética - Preview White-Label, Agendamento e Painel CRM",
+  "engines": {
+    "node": ">=18.x"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"

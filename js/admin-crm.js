@@ -467,11 +467,113 @@
   }
 
   // =========================================================
-  // API CLIENT
+  // API CLIENT + PER-USER COLD-START RESILIENT MIRROR (VERCEL)
   // =========================================================
+  const LOCAL_USERS_KEY = 'wl_preview_users_v1';
+
+  async function hashLocalPass(email, password) {
+    const raw = email.trim().toLowerCase() + '::wl_v1::' + password;
+    if (window.crypto && window.crypto.subtle && window.TextEncoder) {
+      const buf = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+      return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+    return btoa(unescape(encodeURIComponent(raw)));
+  }
+
+  async function verifyLocalAccount(email, password) {
+    try {
+      const users = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || '[]');
+      const norm = email.trim().toLowerCase();
+      const found = Array.isArray(users) && users.find((u) => u.email === norm);
+      if (!found) return false;
+      if (found.passHash) return (await hashLocalPass(norm, password)) === found.passHash;
+      return found.password === password;
+    } catch {
+      return false;
+    }
+  }
+
+  function mirrorKeys(email) {
+    const norm = String(email || '').trim().toLowerCase();
+    return {
+      bookings: 'wl_crm_bookings:' + norm,
+      workspace: 'wl_crm_workspace:' + norm,
+    };
+  }
+
+  function readLocalMirror(email) {
+    if (!email) return { bookings: [], workspace: null };
+    const k = mirrorKeys(email);
+    let localBookings = [];
+    let localWorkspace = null;
+    try {
+      const b = JSON.parse(localStorage.getItem(k.bookings) || '[]');
+      if (Array.isArray(b)) localBookings = b;
+    } catch {}
+    try {
+      const w = JSON.parse(localStorage.getItem(k.workspace) || 'null');
+      if (w && typeof w === 'object') localWorkspace = w;
+    } catch {}
+    return { bookings: localBookings, workspace: localWorkspace };
+  }
+
+  function saveLocalMirror() {
+    if (!adminEmail) return;
+    const k = mirrorKeys(adminEmail);
+    try {
+      localStorage.setItem(k.bookings, JSON.stringify(bookings));
+      localStorage.setItem(k.workspace, JSON.stringify(workspace));
+    } catch {}
+  }
+
+  function mergeBookingsLists(serverList, localList) {
+    const map = new Map();
+    (localList || []).forEach((b) => { if (b && b.id) map.set(b.id, b); });
+    (serverList || []).forEach((b) => {
+      if (!b || !b.id) return;
+      const prev = map.get(b.id);
+      if (!prev || new Date(b.updatedAt || b.createdAt || 0) >= new Date(prev.updatedAt || prev.createdAt || 0)) {
+        map.set(b.id, b);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }
+
+  function mergeWorkspaceData(serverWs, localWs) {
+    if (!localWs) return serverWs;
+    const merged = Object.assign({}, serverWs);
+    // Prefer locally customized settings/team/services/patients/transactions if server cold-started empty
+    if (localWs.settings && localWs.settings.clinicName && serverWs.settings && serverWs.settings.clinicName === 'Clínica de Estética') {
+      merged.settings = Object.assign({}, serverWs.settings, localWs.settings);
+    }
+    const mergeById = (srvArr, locArr) => {
+      const m = new Map();
+      (locArr || []).forEach((x) => { if (x && x.id) m.set(x.id, x); });
+      (srvArr || []).forEach((x) => { if (x && x.id) m.set(x.id, x); });
+      return Array.from(m.values());
+    };
+    if (Array.isArray(localWs.patients) && localWs.patients.length > (serverWs.patients || []).length) {
+      merged.patients = mergeById(serverWs.patients, localWs.patients);
+    }
+    if (Array.isArray(localWs.transactions) && localWs.transactions.length > (serverWs.transactions || []).length) {
+      merged.transactions = mergeById(serverWs.transactions, localWs.transactions);
+    }
+    if (Array.isArray(localWs.services) && localWs.services.length > 0 && (!serverWs.services || serverWs.services.length === 7)) {
+      merged.services = mergeById(serverWs.services, localWs.services);
+    }
+    if (Array.isArray(localWs.team) && localWs.team.length > 0 && (!serverWs.team || serverWs.team.length === 3)) {
+      merged.team = mergeById(serverWs.team, localWs.team);
+    }
+    return merged;
+  }
+
   async function apiRequest(path, options) {
     const headers = Object.assign({ 'Content-Type': 'application/json' }, (options && options.headers) || {});
-    if (adminToken) headers.Authorization = 'Bearer ' + adminToken;
+    if (adminToken && !String(adminToken).startsWith('local:')) {
+      headers.Authorization = 'Bearer ' + adminToken;
+    }
     const resp = await fetch(path, Object.assign({}, options || {}, { headers }));
     let data = {};
     try {
@@ -482,18 +584,34 @@
       throw new Error('Sessão expirada. Entre novamente.');
     }
     if (!resp.ok) {
-      throw new Error(data.error || 'Erro ao comunicar com o servidor.');
+      const err = new Error(data.error || 'Erro ao comunicar com o servidor.');
+      err.status = resp.status;
+      throw err;
     }
     return data;
   }
 
   async function loadAllData(showNotice) {
-    const [bData, wData] = await Promise.all([
-      apiRequest('/api/bookings', { method: 'GET' }),
-      apiRequest('/api/workspace', { method: 'GET' }),
-    ]);
-    bookings = Array.isArray(bData.bookings) ? bData.bookings : [];
-    if (wData && wData.workspace) workspace = wData.workspace;
+    const mirror = readLocalMirror(adminEmail);
+    try {
+      const [bData, wData] = await Promise.all([
+        apiRequest('/api/bookings', { method: 'GET' }),
+        apiRequest('/api/workspace', { method: 'GET' }),
+      ]);
+      const srvBookings = Array.isArray(bData.bookings) ? bData.bookings : [];
+      bookings = mergeBookingsLists(srvBookings, mirror.bookings);
+      if (wData && wData.workspace) {
+        workspace = mergeWorkspaceData(wData.workspace, mirror.workspace);
+      }
+      saveLocalMirror();
+    } catch (err) {
+      if (mirror.bookings.length || mirror.workspace) {
+        bookings = mirror.bookings;
+        if (mirror.workspace) workspace = mirror.workspace;
+      } else {
+        throw err;
+      }
+    }
     renderEverything();
     if (showNotice) showToast('Dados da clínica sincronizados.');
   }
@@ -524,10 +642,23 @@
     loginFeedback.textContent = '';
 
     try {
-      const res = await apiRequest('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
+      let res;
+      try {
+        res = await apiRequest('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+      } catch (loginErr) {
+        // Re-hydrate account seamlessly after Vercel ephemeral /tmp cold start if verified locally
+        if (loginErr.status === 401 && (await verifyLocalAccount(email, password))) {
+          res = await apiRequest('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({ email, password }),
+          });
+        } else {
+          throw loginErr;
+        }
+      }
 
       adminToken = res.token;
       adminEmail = (res.user && res.user.email) || email;
@@ -631,6 +762,7 @@
   // MASTER RENDER PIPELINE
   // =========================================================
   function renderEverything() {
+    saveLocalMirror();
     syncDynamicSelectOptions();
     renderHeaderAndBadges();
     renderCRM();
@@ -1389,15 +1521,24 @@
   // CRM BOOKING DRAWER
   // =========================================================
   async function updateBooking(id, patch, silent) {
-    const res = await apiRequest(`/api/bookings/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    });
+    let updatedBooking = null;
+    try {
+      const res = await apiRequest(`/api/bookings/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      updatedBooking = res.booking;
+    } catch (err) {
+      // If Vercel serverless cold-started ephemeral /tmp, update isolated client mirror cleanly
+      if (err.status !== 404) throw err;
+    }
     const idx = bookings.findIndex((b) => b.id === id);
-    if (idx !== -1 && res.booking) bookings[idx] = res.booking;
+    if (idx !== -1) {
+      bookings[idx] = updatedBooking || Object.assign({}, bookings[idx], patch, { updatedAt: new Date().toISOString() });
+    }
     renderEverything();
     if (!silent) showToast('Alterações salvas no CRM.');
-    return res.booking;
+    return idx !== -1 ? bookings[idx] : updatedBooking;
   }
 
   function openDrawer(id) {
@@ -1790,7 +1931,11 @@
     if (!activeBookingId) return;
     deleteYesBtn.disabled = true;
     try {
-      await apiRequest(`/api/bookings/${encodeURIComponent(activeBookingId)}`, { method: 'DELETE' });
+      try {
+        await apiRequest(`/api/bookings/${encodeURIComponent(activeBookingId)}`, { method: 'DELETE' });
+      } catch (err) {
+        if (err.status !== 404) throw err;
+      }
       bookings = bookings.filter((b) => b.id !== activeBookingId);
       closeDrawer();
       renderEverything();

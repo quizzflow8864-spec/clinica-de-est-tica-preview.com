@@ -60,44 +60,89 @@
     return sameOriginRef || recentClick;
   }
 
-  // Fallback localStorage auth (only if API is unreachable, e.g. opened from file://)
-  function localAuth(mode, email, password) {
-    let users = [];
-    try {
-      users = JSON.parse(localStorage.getItem(FALLBACK_USERS_KEY) || '[]');
-      if (!Array.isArray(users)) users = [];
-    } catch {
-      users = [];
+  // Client-side per-user account mirror (handles Vercel ephemeral /tmp cold starts seamlessly)
+  async function hashLocalPass(email, password) {
+    const raw = email.trim().toLowerCase() + '::wl_v1::' + password;
+    if (window.crypto && window.crypto.subtle && window.TextEncoder) {
+      const buf = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+      return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
     }
+    return btoa(unescape(encodeURIComponent(raw)));
+  }
+
+  function readLocalUsers() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FALLBACK_USERS_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async function saveLocalUser(email, password) {
     const norm = email.trim().toLowerCase();
-    const existing = users.find((u) => u.email === norm);
+    const passHash = await hashLocalPass(norm, password);
+    const users = readLocalUsers().filter((u) => u.email !== norm);
+    users.push({ email: norm, passHash, createdAt: new Date().toISOString() });
+    try {
+      localStorage.setItem(FALLBACK_USERS_KEY, JSON.stringify(users));
+    } catch {}
+  }
+
+  async function verifyLocalUser(email, password) {
+    const norm = email.trim().toLowerCase();
+    const found = readLocalUsers().find((u) => u.email === norm);
+    if (!found) return false;
+    if (found.passHash) {
+      return (await hashLocalPass(norm, password)) === found.passHash;
+    }
+    return found.password === password;
+  }
+
+  async function localAuth(mode, email, password) {
+    const norm = email.trim().toLowerCase();
+    const existing = readLocalUsers().find((u) => u.email === norm);
     if (mode === 'register') {
       if (existing) return { ok: false, error: 'Este Gmail já está cadastrado. Use a aba Entrar.' };
-      users.push({ email: norm, password, createdAt: new Date().toISOString() });
-      localStorage.setItem(FALLBACK_USERS_KEY, JSON.stringify(users));
-      return { ok: true, user: { email: norm } };
+      await saveLocalUser(norm, password);
+      return { ok: true, user: { email: norm }, token: 'local:' + norm };
     }
-    if (!existing || existing.password !== password) {
+    if (!existing || !(await verifyLocalUser(norm, password))) {
       return { ok: false, error: 'Gmail ou senha incorretos.' };
     }
-    return { ok: true, user: { email: norm } };
+    return { ok: true, user: { email: norm }, token: 'local:' + norm };
   }
 
   async function submitAuth(mode, email, password) {
+    const norm = email.trim().toLowerCase();
     const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
     try {
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: norm, password }),
       });
       const data = await resp.json();
-      if (!resp.ok) {
-        return { ok: false, error: data.error || 'Não foi possível concluir o acesso.' };
+      if (resp.ok) {
+        await saveLocalUser(norm, password);
+        return data;
       }
-      return data;
+      // If Vercel serverless cold-started ephemeral /tmp storage, re-hydrate verified account seamlessly
+      if (mode === 'login' && resp.status === 401 && (await verifyLocalUser(norm, password))) {
+        const reReg = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: norm, password }),
+        });
+        const reData = await reReg.json().catch(() => ({}));
+        if (reReg.ok && reData.token) return reData;
+        return { ok: true, user: { email: norm }, token: 'local:' + norm };
+      }
+      return { ok: false, error: data.error || 'Não foi possível concluir o acesso.' };
     } catch {
-      return localAuth(mode, email, password);
+      return localAuth(mode, norm, password);
     }
   }
 

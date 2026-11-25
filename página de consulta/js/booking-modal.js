@@ -276,8 +276,10 @@
         try {
           const rawSess = sessionStorage.getItem('wl_preview_session');
           const sess = rawSess ? JSON.parse(rawSess) : null;
-          if (sess && sess.token) {
-            await fetch('/api/bookings', {
+          let savedBooking = null;
+
+          if (sess && sess.token && !String(sess.token).startsWith('local:')) {
+            const resp = await fetch('/api/bookings', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -288,6 +290,36 @@
                 origem: 'Página de Consulta',
               }),
             });
+            const json = await resp.json().catch(() => ({}));
+            if (resp.ok && json.booking) savedBooking = json.booking;
+          }
+
+          // Mirror strictly to this logged-in user's isolated browser key (resilient to Vercel /tmp cold starts)
+          if (sess && sess.email) {
+            const ownerKey = 'wl_crm_bookings:' + String(sess.email).trim().toLowerCase();
+            const nowIso = new Date().toISOString();
+            const localEntry = savedBooking || {
+              id: 'ag_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+              ...data,
+              areas: data.areas.length ? data.areas : ['Avaliação Estética'],
+              objetivo: data.objetivo || 'Avaliação estética personalizada',
+              protocolo: '',
+              profissional: '',
+              sala: '',
+              status: 'novo',
+              valorEstimado: 0,
+              notasInternas: '',
+              origem: 'Página de Consulta',
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            };
+            let existing = [];
+            try {
+              const parsed = JSON.parse(localStorage.getItem(ownerKey) || '[]');
+              if (Array.isArray(parsed)) existing = parsed;
+            } catch {}
+            existing = [localEntry, ...existing.filter((x) => x.id !== localEntry.id)];
+            localStorage.setItem(ownerKey, JSON.stringify(existing));
           }
         } catch {}
 
