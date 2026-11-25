@@ -1,4 +1,4 @@
-const { handleApiRequest, sendJson } = require('../lib/api-handler');
+const { handleApiRequest, sendJson } = require('./_lib/api-handler');
 
 module.exports = async function handler(req, res) {
   try {

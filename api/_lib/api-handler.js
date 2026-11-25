@@ -1,10 +1,10 @@
-const fs = require('fs');
+﻿const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 
 const IS_VERCEL = Boolean(process.env.VERCEL);
-const ROOT_DIR = path.resolve(__dirname, '..');
+const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const DATA_DIR = IS_VERCEL ? path.join(os.tmpdir(), 'clinica-estetica-data') : path.join(ROOT_DIR, 'data');
 const BOOKINGS_DIR = path.join(DATA_DIR, 'bookings');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');

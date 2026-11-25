@@ -1,9 +1,9 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { handleApiRequest, sendJson } = require('./lib/api-handler');
+const { handleApiRequest, sendJson } = require('../api/_lib/api-handler');
 
-const ROOT_DIR = __dirname;
+const ROOT_DIR = path.resolve(__dirname, '..');
 const DEFAULT_PORT = parseInt(process.env.PORT, 10) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
@@ -49,8 +49,8 @@ function resolveFilePath(requestUrl) {
   if (
     decoded === '/data' ||
     decoded.startsWith('/data/') ||
-    decoded === '/lib' ||
-    decoded.startsWith('/lib/') ||
+    decoded === '/scripts' ||
+    decoded.startsWith('/scripts/') ||
     decoded === '/api' ||
     decoded.startsWith('/api/')
   ) {
