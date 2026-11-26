@@ -460,9 +460,23 @@
 
   function syncSiteSessionBeforeNavigate() {
     if (!adminEmail || !adminToken) return;
+    const clinicName = getClinicName();
     try {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ email: adminEmail, token: adminToken, loggedAt: Date.now() }));
+      sessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({ email: adminEmail, businessName: clinicName, token: adminToken, loggedAt: Date.now() })
+      );
       sessionStorage.setItem(INTERNAL_NAV_KEY, String(Date.now()));
+      // Also mirror latest clinicName into local user list
+      const users = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || '[]');
+      if (Array.isArray(users)) {
+        const norm = adminEmail.toLowerCase();
+        const idx = users.findIndex((u) => u.email === norm);
+        if (idx !== -1 && clinicName) {
+          users[idx].businessName = clinicName;
+          localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+        }
+      }
     } catch {}
   }
 
@@ -651,9 +665,15 @@
       } catch (loginErr) {
         // Re-hydrate account seamlessly after Vercel ephemeral /tmp cold start if verified locally
         if (loginErr.status === 401 && (await verifyLocalAccount(email, password))) {
+          let storedBiz = '';
+          try {
+            const users = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || '[]');
+            const f = Array.isArray(users) && users.find((u) => u.email === email);
+            if (f && f.businessName) storedBiz = f.businessName;
+          } catch {}
           res = await apiRequest('/api/auth/register', {
             method: 'POST',
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ email, password, businessName: storedBiz }),
           });
         } else {
           throw loginErr;
@@ -662,6 +682,9 @@
 
       adminToken = res.token;
       adminEmail = (res.user && res.user.email) || email;
+      if (res.user && res.user.businessName) {
+        workspace.settings.clinicName = res.user.businessName;
+      }
       syncSiteSessionBeforeNavigate();
 
       loginFeedback.classList.add('is-ok');
@@ -805,10 +828,27 @@
     }
   }
 
+  const ADM_DROP_SVG = `<svg viewBox="0 0 54 52" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M46.46,6.71v2h3.5v20.55c0,11.33-9.22,20.56-20.56,20.56s-20.55-9.22-20.55-20.55S18.08,8.71,29.41,8.71h12.34v-2h-12.34c-12.44,0-22.55,10.12-22.55,22.56s10.12,22.55,22.55,22.55,22.56-10.12,22.56-22.56V6.71h-5.5Z"/><path d="M6.34,35.14c-2.71-3.48-4.34-7.84-4.34-12.59C2,11.22,11.22,2,22.56,2h20.55v20.55c0,11.33-9.22,20.56-20.56,20.56-2.88,0-5.62-.6-8.12-1.68.96,1.17,2.05,2.22,3.26,3.14,1.57.35,3.19.53,4.86.53,12.44,0,22.56-10.12,22.56-22.56V0h-22.55C10.12,0,0,10.12,0,22.56c0,6.94,3.15,13.15,8.09,17.29-.74-1.49-1.33-3.06-1.75-4.7Z"/></svg>`;
+
   function renderHeaderAndBadges() {
     const clinicName = getClinicName();
     clinicNameHeader.textContent = clinicName.toUpperCase();
     document.title = `Painel Admin & CRM — ${clinicName}`;
+
+    // Render custom white-label brand lockup in Admin header
+    const headerBrand = document.querySelector('.adm-header-brand');
+    if (headerBrand) {
+      const origLogo = headerBrand.querySelector('.adm-header-logo');
+      if (origLogo) origLogo.style.display = 'none';
+      let lockup = headerBrand.querySelector('.adm-brand-lockup');
+      if (!lockup) {
+        lockup = document.createElement('span');
+        lockup.className = 'adm-brand-lockup';
+        headerBrand.insertBefore(lockup, origLogo || headerBrand.firstChild);
+      }
+      lockup.innerHTML = `${ADM_DROP_SVG}<span>${escapeHtml(clinicName)}</span>`;
+    }
+    syncSiteSessionBeforeNavigate();
 
     const pendingCount = bookings.filter((b) => b.status === 'novo' || b.status === 'em_contato').length;
     const scheduledCount = bookings.filter((b) => b.status === 'agendado').length;

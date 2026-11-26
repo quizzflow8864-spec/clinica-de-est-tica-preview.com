@@ -677,6 +677,7 @@ async function handleApiRequest(req, res) {
 
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
+    const businessName = sanitizeText(body.businessName, 48) || 'Clínica';
 
     if (!isValidEmail(email)) {
       sendJson(res, 400, { ok: false, error: 'Informe um endereço de Gmail válido.' });
@@ -694,11 +695,16 @@ async function handleApiRequest(req, res) {
     }
 
     const { salt, hash } = hashPassword(password);
-    users.push({ email, salt, hash, createdAt: new Date().toISOString() });
+    users.push({ email, businessName, salt, hash, createdAt: new Date().toISOString() });
     await writeUsers(users);
 
+    // Sync initial clinic name into the user's isolated workspace immediately
+    const ws = await readUserWorkspace(email);
+    ws.settings.clinicName = businessName;
+    await writeUserWorkspace(email, ws);
+
     const token = createAuthToken(email);
-    sendJson(res, 201, { ok: true, user: { email }, token });
+    sendJson(res, 201, { ok: true, user: { email, businessName }, token });
     return;
   }
 
@@ -726,8 +732,17 @@ async function handleApiRequest(req, res) {
       return;
     }
 
+    let businessName = found.businessName || '';
+    try {
+      const ws = await readUserWorkspace(found.email);
+      if (ws && ws.settings && ws.settings.clinicName && ws.settings.clinicName !== 'Clínica de Estética') {
+        businessName = ws.settings.clinicName;
+      }
+    } catch {}
+    if (!businessName) businessName = 'Clínica';
+
     const token = createAuthToken(found.email);
-    sendJson(res, 200, { ok: true, user: { email: found.email }, token });
+    sendJson(res, 200, { ok: true, user: { email: found.email, businessName }, token });
     return;
   }
 
@@ -900,6 +915,15 @@ async function handleApiRequest(req, res) {
       });
       if (!ws.settings.clinicName) ws.settings.clinicName = 'Clínica de Estética';
       await writeUserWorkspace(ownerEmail, ws);
+      // Keep user's businessName synced with White-Label settings
+      try {
+        const users = await readUsers();
+        const uIdx = users.findIndex((u) => u.email === ownerEmail);
+        if (uIdx !== -1) {
+          users[uIdx].businessName = ws.settings.clinicName;
+          await writeUsers(users);
+        }
+      } catch {}
       sendJson(res, 200, { ok: true, settings: ws.settings });
       return;
     }

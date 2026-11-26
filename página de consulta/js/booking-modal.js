@@ -126,8 +126,17 @@
       };
     }
 
+    function getActiveClinicName() {
+      try {
+        const sess = JSON.parse(sessionStorage.getItem('wl_preview_session') || 'null');
+        if (sess && sess.businessName && sess.businessName !== 'Clínica') return sess.businessName;
+      } catch {}
+      return 'Clínica de Estética';
+    }
+
     function buildWhatsAppUrl(data) {
-      const lines = ['Olá! Gostaria de agendar uma avaliação na Clínica de Estética.'];
+      const clinicName = getActiveClinicName();
+      const lines = [`Olá! Gostaria de agendar uma avaliação na ${clinicName}.`];
       if (data.nome) lines.push(`• Nome: ${data.nome}`);
       if (data.telefone) lines.push(`• WhatsApp: ${data.telefone}`);
       if (data.areas && data.areas.length) lines.push(`• Interesse: ${data.areas.join(', ')}`);

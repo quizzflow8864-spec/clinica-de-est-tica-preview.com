@@ -2905,3 +2905,34 @@ html[data-theme="dark"] .adm-evo-item {
     background-color: rgba(20, 16, 26, 0.46);
   }
 }
+
+/* ==========================================================
+   20. DYNAMIC WHITE-LABEL BRAND LOCKUP IN ADMIN HEADER
+   ========================================================== */
+.adm-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--adm-plum);
+  line-height: 1;
+  user-select: none;
+}
+
+.adm-brand-lockup svg {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: block;
+}
+
+.adm-brand-lockup span {
+  font-family: "novecento-sans-wide", "Work Sans", sans-serif;
+  font-weight: 200;
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

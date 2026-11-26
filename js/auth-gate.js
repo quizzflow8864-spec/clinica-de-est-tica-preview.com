@@ -11,6 +11,47 @@
   const consultaUrl = isConsultaPage ? './index.html' : './p%C3%A1gina%20de%20consulta/index.html';
   const adminUrl = isConsultaPage ? '../admin.html' : './admin.html';
 
+  const DOUBLE_DROP_SVG = `<svg class="wl-brand-icon" viewBox="0 0 54 52" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M46.46,6.71v2h3.5v20.55c0,11.33-9.22,20.56-20.56,20.56s-20.55-9.22-20.55-20.55S18.08,8.71,29.41,8.71h12.34v-2h-12.34c-12.44,0-22.55,10.12-22.55,22.56s10.12,22.55,22.55,22.55,22.56-10.12,22.56-22.56V6.71h-5.5Z"/>
+    <path d="M6.34,35.14c-2.71-3.48-4.34-7.84-4.34-12.59C2,11.22,11.22,2,22.56,2h20.55v20.55c0,11.33-9.22,20.56-20.56,20.56-2.88,0-5.62-.6-8.12-1.68.96,1.17,2.05,2.22,3.26,3.14,1.57.35,3.19.53,4.86.53,12.44,0,22.56-10.12,22.56-22.56V0h-22.55C10.12,0,0,10.12,0,22.56c0,6.94,3.15,13.15,8.09,17.29-.74-1.49-1.33-3.06-1.75-4.7Z"/>
+  </svg>`;
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function sizeClassForName(name) {
+    const len = String(name || '').trim().length;
+    if (len > 18) return 'is-long';
+    if (len > 11) return 'is-medium';
+    return '';
+  }
+
+  function buildBrandLockupHtml(name, variantClass) {
+    const clean = String(name || '').trim() || 'Clínica';
+    const sizeCls = sizeClassForName(clean);
+    return `<span class="wl-brand-lockup ${variantClass || ''} ${sizeCls}" data-wl-brand-lockup>${DOUBLE_DROP_SVG}<span class="wl-brand-wordmark">${escapeHtml(clean)}</span></span>`;
+  }
+
+  function getStoredBusinessNameForEmail(email) {
+    if (!email) return '';
+    const norm = email.trim().toLowerCase();
+    // Prefer latest clinicName if edited inside Admin White-Label settings
+    try {
+      const ws = JSON.parse(localStorage.getItem('wl_crm_workspace:' + norm) || 'null');
+      if (ws && ws.settings && ws.settings.clinicName && ws.settings.clinicName !== 'Clínica de Estética') {
+        return ws.settings.clinicName;
+      }
+    } catch {}
+    const found = readLocalUsers().find((u) => u.email === norm);
+    return (found && found.businessName) || '';
+  }
+
   function getSession() {
     try {
       const raw = sessionStorage.getItem(SESSION_KEY);
@@ -22,8 +63,12 @@
     }
   }
 
-  function setSession(email, token) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ email, token: token || '', loggedAt: Date.now() }));
+  function setSession(email, token, businessName) {
+    const resolvedName = String(businessName || '').trim() || getStoredBusinessNameForEmail(email) || 'Clínica';
+    sessionStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ email, businessName: resolvedName, token: token || '', loggedAt: Date.now() })
+    );
   }
 
   function clearSession() {
@@ -81,14 +126,17 @@
     }
   }
 
-  async function saveLocalUser(email, password) {
+  async function saveLocalUser(email, password, businessName) {
     const norm = email.trim().toLowerCase();
     const passHash = await hashLocalPass(norm, password);
+    const prev = readLocalUsers().find((u) => u.email === norm);
+    const resolvedName = String(businessName || '').trim() || (prev && prev.businessName) || 'Clínica';
     const users = readLocalUsers().filter((u) => u.email !== norm);
-    users.push({ email: norm, passHash, createdAt: new Date().toISOString() });
+    users.push({ email: norm, businessName: resolvedName, passHash, createdAt: (prev && prev.createdAt) || new Date().toISOString() });
     try {
       localStorage.setItem(FALLBACK_USERS_KEY, JSON.stringify(users));
     } catch {}
+    return resolvedName;
   }
 
   async function verifyLocalUser(email, password) {
@@ -101,53 +149,123 @@
     return found.password === password;
   }
 
-  async function localAuth(mode, email, password) {
+  async function localAuth(mode, email, password, businessName) {
     const norm = email.trim().toLowerCase();
     const existing = readLocalUsers().find((u) => u.email === norm);
     if (mode === 'register') {
       if (existing) return { ok: false, error: 'Este Gmail já está cadastrado. Use a aba Entrar.' };
-      await saveLocalUser(norm, password);
-      return { ok: true, user: { email: norm }, token: 'local:' + norm };
+      const savedName = await saveLocalUser(norm, password, businessName);
+      return { ok: true, user: { email: norm, businessName: savedName }, token: 'local:' + norm };
     }
     if (!existing || !(await verifyLocalUser(norm, password))) {
       return { ok: false, error: 'Gmail ou senha incorretos.' };
     }
-    return { ok: true, user: { email: norm }, token: 'local:' + norm };
+    const resolved = getStoredBusinessNameForEmail(norm) || existing.businessName || 'Clínica';
+    return { ok: true, user: { email: norm, businessName: resolved }, token: 'local:' + norm };
   }
 
-  async function submitAuth(mode, email, password) {
+  async function submitAuth(mode, email, password, businessName) {
     const norm = email.trim().toLowerCase();
+    const cleanBiz = String(businessName || '').trim();
     const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    const payload = mode === 'register' ? { email: norm, password, businessName: cleanBiz } : { email: norm, password };
     try {
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: norm, password }),
+        body: JSON.stringify(payload),
       });
       const data = await resp.json();
       if (resp.ok) {
-        await saveLocalUser(norm, password);
+        const returnedName = (data.user && data.user.businessName) || cleanBiz;
+        const finalName = await saveLocalUser(norm, password, returnedName);
+        if (data.user) data.user.businessName = getStoredBusinessNameForEmail(norm) || finalName;
         return data;
       }
       // If Vercel serverless cold-started ephemeral /tmp storage, re-hydrate verified account seamlessly
       if (mode === 'login' && resp.status === 401 && (await verifyLocalUser(norm, password))) {
+        const storedBiz = getStoredBusinessNameForEmail(norm) || 'Clínica';
         const reReg = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: norm, password }),
+          body: JSON.stringify({ email: norm, password, businessName: storedBiz }),
         });
         const reData = await reReg.json().catch(() => ({}));
         if (reReg.ok && reData.token) return reData;
-        return { ok: true, user: { email: norm }, token: 'local:' + norm };
+        return { ok: true, user: { email: norm, businessName: storedBiz }, token: 'local:' + norm };
       }
       return { ok: false, error: data.error || 'Não foi possível concluir o acesso.' };
     } catch {
-      return localAuth(mode, norm, password);
+      return localAuth(mode, norm, password, cleanBiz);
+    }
+  }
+
+  // =========================================================
+  // APPLY DYNAMIC WHITE-LABEL BUSINESS NAME ACROSS THE SITE
+  // =========================================================
+  function applySiteBranding(businessName) {
+    const rawName = String(businessName || '').trim();
+    const displayName = rawName || 'Clínica';
+    const isCustom = Boolean(rawName) && rawName.toLowerCase() !== 'clínica' && rawName.toLowerCase() !== 'clínica de estética';
+
+    // 1. Document title
+    document.title = isConsultaPage
+      ? `${displayName} | Estética Avançada e Agendamento`
+      : `${displayName} — Estética Avançada e Bem-Estar`;
+
+    // 2. Navbar logos (desktop + mobile)
+    document.querySelectorAll('a.brand').forEach((brandLink) => {
+      let existing = brandLink.querySelector('[data-wl-brand-lockup]');
+      const img = brandLink.querySelector('img[src*="logo_salvato_mono"]');
+      if (img) img.style.display = 'none';
+      if (existing) existing.remove();
+      const wrap = document.createElement('span');
+      wrap.innerHTML = buildBrandLockupHtml(displayName, 'wl-brand-lockup--nav');
+      brandLink.appendChild(wrap.firstElementChild);
+    });
+
+    // 3. Footer logo
+    document.querySelectorAll('.footer_logo').forEach((fLogo) => {
+      fLogo.classList.add('wl-has-custom-brand');
+      fLogo.innerHTML = buildBrandLockupHtml(displayName, 'wl-brand-lockup--footer');
+    });
+
+    // 4. Booking modal logo (página de consulta)
+    const modalAsideTop = document.querySelector('.ag-aside-top');
+    if (modalAsideTop) {
+      const modalImg = modalAsideTop.querySelector('.ag-brand-mark');
+      if (modalImg) modalImg.style.display = 'none';
+      const oldModalBrand = modalAsideTop.querySelector('[data-wl-brand-lockup]');
+      if (oldModalBrand) oldModalBrand.remove();
+      const wrap = document.createElement('div');
+      wrap.innerHTML = buildBrandLockupHtml(displayName, 'wl-brand-lockup--modal');
+      modalAsideTop.insertBefore(wrap.firstElementChild, modalAsideTop.firstChild);
+    }
+
+    // 5. Footer clinic title & copyright
+    document.querySelectorAll('.footer_text_column.right a.footer_link strong').forEach((el) => {
+      if (!el.dataset.wlOrigText) el.dataset.wlOrigText = el.textContent;
+      if (el.dataset.wlOrigText.toLowerCase().includes('clínica')) {
+        el.textContent = isCustom ? displayName : el.dataset.wlOrigText;
+      }
+    });
+
+    document.querySelectorAll('.credito a.link').forEach((el) => {
+      if (!el.dataset.wlOrigText) el.dataset.wlOrigText = el.textContent;
+      el.textContent = isCustom ? displayName : el.dataset.wlOrigText;
+    });
+
+    // 6. Hero secondary intro paragraph on consultation page
+    const heroParSec = document.getElementById('heroparsec');
+    if (heroParSec) {
+      if (!heroParSec.dataset.wlOrigText) heroParSec.dataset.wlOrigText = heroParSec.textContent;
+      heroParSec.textContent = isCustom
+        ? heroParSec.dataset.wlOrigText.replace('Na nossa Clínica de Estética,', `Na ${displayName},`)
+        : heroParSec.dataset.wlOrigText;
     }
   }
 
   function buildGateMarkup() {
-    const logoSrc = assetPrefix + 'images/logo_salvato_mono.svg';
     const photoSrc = assetPrefix + 'images/woman-face-and-moisturizer-cream-for-skincare-bea-2025-04-05-18-06-03-utc.jpg';
 
     return `
@@ -165,10 +283,10 @@
             </svg>
 
             <div class="wl-showcase-top">
-              <img src="${logoSrc}" alt="Clínica de Estética" class="wl-brand-logo">
+              <div id="wl-gate-brand-slot">${buildBrandLockupHtml('Clínica', 'wl-brand-lockup--gate')}</div>
               <div class="wl-eyebrow">PREVIEW WHITE-LABEL</div>
-              <h1 class="wl-headline">Explore a experiência completa da clínica.</h1>
-              <p class="wl-lead">Crie sua conta ou faça login para navegar pelas páginas, animações e fluxo de agendamento deste modelo pronto para receber a sua marca.</p>
+              <h1 class="wl-headline">Explore a experiência com o nome da sua marca.</h1>
+              <p class="wl-lead">Crie sua conta, informe o nome do seu negócio e veja o site inteiro, o agendamento e o painel CRM personalizados instantaneamente para a sua clínica.</p>
             </div>
 
             <div class="wl-visual-frame">
@@ -187,6 +305,13 @@
             <p id="wl-form-sub" class="wl-form-sub">Entre com o seu Gmail e a senha escolhida para continuar a exploração.</p>
 
             <form id="wl-auth-form" class="wl-form" novalidate>
+              <div id="wl-business-field" class="wl-field" hidden>
+                <label for="wl-business" class="wl-label">Nome do seu negócio / clínica</label>
+                <div class="wl-input-wrap">
+                  <input id="wl-business" name="businessName" type="text" maxlength="40" class="wl-input" placeholder="Ex: Lumière Estética, Atelier Vita..." autocomplete="organization">
+                </div>
+              </div>
+
               <div class="wl-field">
                 <label for="wl-email" class="wl-label">Gmail</label>
                 <div class="wl-input-wrap">
@@ -270,6 +395,7 @@
 
     const gate = document.getElementById('wl-auth-gate');
     const card = gate.querySelector('.wl-card');
+    const gateBrandSlot = document.getElementById('wl-gate-brand-slot');
     const bar = document.getElementById('wl-preview-bar');
     const barUser = document.getElementById('wl-bar-user');
     const logoutBtn = document.getElementById('wl-logout-btn');
@@ -278,6 +404,8 @@
     const form = document.getElementById('wl-auth-form');
     const formTitle = document.getElementById('wl-form-title');
     const formSub = document.getElementById('wl-form-sub');
+    const businessField = document.getElementById('wl-business-field');
+    const businessInput = document.getElementById('wl-business');
     const emailInput = document.getElementById('wl-email');
     const passInput = document.getElementById('wl-password');
     const togglePassBtn = document.getElementById('wl-toggle-pass');
@@ -287,6 +415,11 @@
     const switchAction = document.getElementById('wl-switch-action');
 
     let mode = 'login';
+
+    function updateGateBrandPreview(val) {
+      if (!gateBrandSlot) return;
+      gateBrandSlot.innerHTML = buildBrandLockupHtml(String(val || '').trim() || 'Clínica', 'wl-brand-lockup--gate');
+    }
 
     function setMode(nextMode) {
       mode = nextMode;
@@ -300,14 +433,18 @@
       });
 
       if (mode === 'register') {
+        businessField.hidden = false;
         formTitle.textContent = 'Crie sua conta';
-        formSub.textContent = 'Escolha um Gmail e uma senha para iniciar sua exploração do modelo.';
+        formSub.textContent = 'Informe o nome do seu negócio, seu Gmail e uma senha para personalizar o preview.';
         passInput.placeholder = 'Escolha uma senha (mín. 6 caracteres)';
         passInput.setAttribute('autocomplete', 'new-password');
         submitBtn.textContent = 'Criar conta e explorar';
         switchText.textContent = 'Já possui uma conta?';
         switchAction.textContent = 'Entrar agora';
+        updateGateBrandPreview(businessInput.value);
+        businessInput.focus();
       } else {
+        businessField.hidden = true;
         formTitle.textContent = 'Acesse o preview';
         formSub.textContent = 'Entre com o seu Gmail e a senha escolhida para continuar a exploração.';
         passInput.placeholder = 'Digite sua senha';
@@ -315,14 +452,17 @@
         submitBtn.textContent = 'Entrar no preview';
         switchText.textContent = 'Ainda não tem acesso?';
         switchAction.textContent = 'Criar conta';
+        updateGateBrandPreview('Clínica');
+        emailInput.focus();
       }
-      emailInput.focus();
     }
 
     function showGate(animate) {
       document.documentElement.classList.add('wl-locked');
       gate.classList.add('is-visible');
       bar.classList.remove('is-visible');
+      applySiteBranding('Clínica');
+      updateGateBrandPreview(mode === 'register' ? businessInput.value : 'Clínica');
       if (animate && window.gsap) {
         window.gsap.killTweensOf([gate, card]);
         window.gsap.fromTo(gate, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: 'power2.out' });
@@ -333,14 +473,17 @@
       }
       setTimeout(() => {
         if (document.documentElement.classList.contains('wl-locked')) {
-          emailInput.focus();
+          (mode === 'register' ? businessInput : emailInput).focus();
         }
       }, 60);
     }
 
-    function unlockSite(email, animate) {
-      barUser.textContent = email;
-      barUser.title = email;
+    function unlockSite(email, businessName, animate) {
+      const resolvedBiz = String(businessName || '').trim() || getStoredBusinessNameForEmail(email) || 'Clínica';
+      applySiteBranding(resolvedBiz);
+
+      barUser.textContent = resolvedBiz !== 'Clínica' ? resolvedBiz : email;
+      barUser.title = `${resolvedBiz} · ${email}`;
 
       const finishUnlock = () => {
         document.documentElement.classList.remove('wl-locked');
@@ -380,6 +523,12 @@
       togglePassBtn.setAttribute('aria-label', showing ? 'Mostrar senha' : 'Ocultar senha');
     });
 
+    businessInput.addEventListener('input', () => {
+      feedback.textContent = '';
+      feedback.classList.remove('is-ok');
+      updateGateBrandPreview(businessInput.value);
+    });
+
     [emailInput, passInput].forEach((inp) => {
       inp.addEventListener('input', () => {
         feedback.textContent = '';
@@ -389,9 +538,15 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const businessName = businessInput.value.trim();
       const email = emailInput.value.trim().toLowerCase();
       const password = passInput.value;
 
+      if (mode === 'register' && businessName.length < 2) {
+        feedback.textContent = 'Informe o nome do seu negócio ou clínica (mín. 2 caracteres).';
+        businessInput.focus();
+        return;
+      }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
         feedback.textContent = 'Informe um endereço de Gmail válido (ex: seunome@gmail.com).';
         emailInput.focus();
@@ -405,9 +560,9 @@
 
       submitBtn.disabled = true;
       const originalText = submitBtn.textContent;
-      submitBtn.textContent = mode === 'register' ? 'Criando conta...' : 'Verificando...';
+      submitBtn.textContent = mode === 'register' ? 'Personalizando site...' : 'Verificando...';
 
-      const res = await submitAuth(mode, email, password);
+      const res = await submitAuth(mode, email, password, businessName);
 
       submitBtn.disabled = false;
       submitBtn.textContent = originalText;
@@ -419,14 +574,15 @@
       }
 
       const signedEmail = (res.user && res.user.email) || email;
-      setSession(signedEmail, res.token || '');
+      const signedBiz = (res.user && res.user.businessName) || businessName || getStoredBusinessNameForEmail(signedEmail) || 'Clínica';
+      setSession(signedEmail, res.token || '', signedBiz);
       markInternalNavigation();
       feedback.classList.add('is-ok');
-      feedback.textContent = mode === 'register' ? 'Conta criada! Abrindo o preview...' : 'Acesso liberado!';
+      feedback.textContent = mode === 'register' ? `Bem-vindo(a)! Abrindo o site da ${signedBiz}...` : 'Acesso liberado!';
 
       setTimeout(() => {
         form.reset();
-        unlockSite(signedEmail, true);
+        unlockSite(signedEmail, signedBiz, true);
       }, 260);
     });
 
@@ -447,7 +603,7 @@
 
     if (initialUnlocked) {
       const sess = getSession();
-      unlockSite(sess.email, false);
+      unlockSite(sess.email, sess.businessName, false);
     } else {
       clearSession();
       showGate(false);
@@ -458,7 +614,7 @@
       if (!event.persisted) return;
       const sess = getSession();
       if (sess) {
-        unlockSite(sess.email, false);
+        unlockSite(sess.email, sess.businessName, false);
       } else {
         showGate(false);
       }
