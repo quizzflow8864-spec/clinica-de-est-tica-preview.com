@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  // Optional external quiz URL (leave empty to use the built-in Focus Frame interactive quiz + gift reveal)
-  const QUIZ_EXTERNAL_URL = '';
+  // External quiz destination URL for "QUERO MEU PROJETO COMPLETO" CTAs
+  const QUIZ_EXTERNAL_URL = 'https://quizz-clinica-de-est-ticacom.vercel.app/';
   const POPUP_DELAY_MS = 60000; // 1 minute (60 seconds)
   const WHATSAPP_NUMBER = '5511984894031';
 
@@ -391,7 +391,16 @@
     // =========================================================
     // FOCUS FRAME POP-UP EVENTS
     // =========================================================
+    function redirectToProjectQuiz() {
+      if (QUIZ_EXTERNAL_URL) {
+        window.location.href = QUIZ_EXTERNAL_URL;
+        return true;
+      }
+      return false;
+    }
+
     floatCtaBtn.addEventListener('click', () => {
+      if (redirectToProjectQuiz()) return;
       closeChat();
       openPopup('intro');
     });
@@ -413,10 +422,7 @@
     });
 
     startQuizBtn.addEventListener('click', () => {
-      if (QUIZ_EXTERNAL_URL) {
-        window.open(QUIZ_EXTERNAL_URL, '_blank', 'noopener,noreferrer');
-        return;
-      }
+      if (redirectToProjectQuiz()) return;
       showModalView('quiz');
       setTimeout(() => qNotes && qNotes.focus(), 50);
     });
@@ -562,6 +568,7 @@
     chatClose.addEventListener('click', closeChat);
 
     chatOpenProjectBtn.addEventListener('click', () => {
+      if (redirectToProjectQuiz()) return;
       closeChat();
       openPopup('intro');
     });
