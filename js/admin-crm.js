@@ -413,8 +413,16 @@
     return '55' + digits;
   }
 
+  function formatClinicDisplayName(raw) {
+    const clean = String(raw || '').trim();
+    if (!clean) return 'Clínica de Estética';
+    if (/^cl[ií]nica(?:\s|$)/i.test(clean)) return clean.replace(/^cl[ií]nica/i, 'Clínica');
+    return 'Clínica ' + clean;
+  }
+
   function getClinicName() {
-    return (workspace.settings && workspace.settings.clinicName) || 'Clínica de Estética';
+    const raw = (workspace.settings && workspace.settings.clinicName) || '';
+    return formatClinicDisplayName(raw);
   }
 
   function buildGreetingPrefix(nome) {

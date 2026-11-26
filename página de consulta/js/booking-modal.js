@@ -129,7 +129,10 @@
     function getActiveClinicName() {
       try {
         const sess = JSON.parse(sessionStorage.getItem('wl_preview_session') || 'null');
-        if (sess && sess.businessName && sess.businessName !== 'Clínica') return sess.businessName;
+        if (sess && sess.businessName && sess.businessName !== 'Clínica') {
+          const clean = String(sess.businessName).trim();
+          return /^cl[ií]nica(?:\s|$)/i.test(clean) ? clean.replace(/^cl[ií]nica/i, 'Clínica') : 'Clínica ' + clean;
+        }
       } catch {}
       return 'Clínica de Estética';
     }

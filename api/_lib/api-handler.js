@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
@@ -652,6 +652,15 @@ function makeDemoPatientsAndFinance() {
   return { patients, transactions };
 }
 
+function formatClinicDisplayName(raw) {
+  const clean = sanitizeText(raw, 48);
+  if (!clean) return 'Clínica';
+  if (/^cl[ií]nica(?:\s|$)/i.test(clean)) {
+    return clean.replace(/^cl[ií]nica/i, 'Clínica');
+  }
+  return 'Clínica ' + clean;
+}
+
 async function handleApiRequest(req, res) {
   const cleanPath = resolveApiPath(req);
 
@@ -677,7 +686,7 @@ async function handleApiRequest(req, res) {
 
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
-    const businessName = sanitizeText(body.businessName, 48) || 'Clínica';
+    const businessName = formatClinicDisplayName(body.businessName);
 
     if (!isValidEmail(email)) {
       sendJson(res, 400, { ok: false, error: 'Informe um endereço de Gmail válido.' });
@@ -740,6 +749,7 @@ async function handleApiRequest(req, res) {
       }
     } catch {}
     if (!businessName) businessName = 'Clínica';
+    businessName = formatClinicDisplayName(businessName);
 
     const token = createAuthToken(found.email);
     sendJson(res, 200, { ok: true, user: { email: found.email, businessName }, token });
@@ -913,7 +923,7 @@ async function handleApiRequest(req, res) {
           ws.settings[k] = sanitizeText(body[k], k === 'waGreeting' ? 400 : 180);
         }
       });
-      if (!ws.settings.clinicName) ws.settings.clinicName = 'Clínica de Estética';
+      ws.settings.clinicName = ws.settings.clinicName ? formatClinicDisplayName(ws.settings.clinicName) : 'Clínica de Estética';
       await writeUserWorkspace(ownerEmail, ws);
       // Keep user's businessName synced with White-Label settings
       try {

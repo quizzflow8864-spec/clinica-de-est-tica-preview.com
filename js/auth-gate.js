@@ -25,15 +25,24 @@
       .replace(/'/g, '&#39;');
   }
 
+  function formatClinicDisplayName(raw) {
+    const clean = String(raw || '').trim();
+    if (!clean) return 'Clínica';
+    if (/^cl[ií]nica(?:\s|$)/i.test(clean)) {
+      return clean.replace(/^cl[ií]nica/i, 'Clínica');
+    }
+    return 'Clínica ' + clean;
+  }
+
   function sizeClassForName(name) {
     const len = String(name || '').trim().length;
-    if (len > 18) return 'is-long';
-    if (len > 11) return 'is-medium';
+    if (len > 22) return 'is-long';
+    if (len > 14) return 'is-medium';
     return '';
   }
 
   function buildBrandLockupHtml(name, variantClass) {
-    const clean = String(name || '').trim() || 'Clínica';
+    const clean = formatClinicDisplayName(name);
     const sizeCls = sizeClassForName(clean);
     return `<span class="wl-brand-lockup ${variantClass || ''} ${sizeCls}" data-wl-brand-lockup>${DOUBLE_DROP_SVG}<span class="wl-brand-wordmark">${escapeHtml(clean)}</span></span>`;
   }
@@ -205,8 +214,8 @@
   // =========================================================
   function applySiteBranding(businessName) {
     const rawName = String(businessName || '').trim();
-    const displayName = rawName || 'Clínica';
-    const isCustom = Boolean(rawName) && rawName.toLowerCase() !== 'clínica' && rawName.toLowerCase() !== 'clínica de estética';
+    const displayName = formatClinicDisplayName(rawName);
+    const isCustom = Boolean(rawName) && displayName.toLowerCase() !== 'clínica' && displayName.toLowerCase() !== 'clínica de estética';
 
     // 1. Document title
     document.title = isConsultaPage
@@ -479,7 +488,7 @@
     }
 
     function unlockSite(email, businessName, animate) {
-      const resolvedBiz = String(businessName || '').trim() || getStoredBusinessNameForEmail(email) || 'Clínica';
+      const resolvedBiz = formatClinicDisplayName(String(businessName || '').trim() || getStoredBusinessNameForEmail(email));
       applySiteBranding(resolvedBiz);
 
       barUser.textContent = resolvedBiz !== 'Clínica' ? resolvedBiz : email;
@@ -574,7 +583,7 @@
       }
 
       const signedEmail = (res.user && res.user.email) || email;
-      const signedBiz = (res.user && res.user.businessName) || businessName || getStoredBusinessNameForEmail(signedEmail) || 'Clínica';
+      const signedBiz = formatClinicDisplayName((res.user && res.user.businessName) || businessName || getStoredBusinessNameForEmail(signedEmail));
       setSession(signedEmail, res.token || '', signedBiz);
       markInternalNavigation();
       feedback.classList.add('is-ok');

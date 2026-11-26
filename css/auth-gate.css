@@ -616,25 +616,26 @@ html.wl-locked .wl-gate,
 .wl-brand-lockup .wl-brand-wordmark {
   font-family: "novecento-sans-wide", "Work Sans", sans-serif;
   font-weight: 200;
-  font-size: 20px;
-  letter-spacing: 0.24em;
+  font-size: 19px;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: currentColor;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
+  max-width: 340px;
 }
 
 .wl-brand-lockup.is-medium .wl-brand-wordmark {
-  font-size: 16.5px;
-  letter-spacing: 0.18em;
+  font-size: 15.5px;
+  letter-spacing: 0.16em;
+  max-width: 360px;
 }
 
 .wl-brand-lockup.is-long .wl-brand-wordmark {
-  font-size: 14px;
-  letter-spacing: 0.13em;
-  max-width: 310px;
+  font-size: 13px;
+  letter-spacing: 0.11em;
+  max-width: 380px;
 }
 
 /* Gate live brand preview */
@@ -649,8 +650,18 @@ html.wl-locked .wl-gate,
 }
 
 .wl-brand-lockup--gate .wl-brand-wordmark {
-  font-size: 18px;
-  max-width: 260px;
+  font-size: 16.5px;
+  max-width: 310px;
+}
+
+.wl-brand-lockup--gate.is-medium .wl-brand-wordmark {
+  font-size: 14.5px;
+  letter-spacing: 0.14em;
+}
+
+.wl-brand-lockup--gate.is-long .wl-brand-wordmark {
+  font-size: 12.5px;
+  letter-spacing: 0.1em;
 }
 
 /* Footer brand lockup */
