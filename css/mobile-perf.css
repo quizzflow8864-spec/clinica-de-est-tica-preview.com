@@ -1,0 +1,125 @@
+/* ==========================================================
+   Mobile-First 60 FPS GPU & Rendering Performance Layer
+   Prioritizes smooth touch scroll, low VRAM, fast LCP & INP
+   ========================================================== */
+
+/* Crisp touch responsiveness everywhere */
+a,
+button,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth momentum scroll inside overlays without background rubber-banding */
+.wl-gate,
+.ag-main,
+.adm-drawer-body,
+.ff-chat-messages {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Skip layout & paint for far off-screen sections until scrolled near viewport */
+@media screen and (max-width: 991px) {
+  .tratamentos_principais,
+  .tratamentos_marquee_wrapper,
+  .info_colageno,
+  .salvato_section,
+  .tecnologias,
+  .testimonials,
+  .clinica_info,
+  .contato_principal,
+  .footer {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 680px;
+  }
+
+  /* Cap 100px/80px full-bleed Gaussian blur filters that crush mobile GPUs */
+  .hero_gradient_video,
+  .hero_gradient_01,
+  .hero_gradient_02,
+  .testimonial_gradient_container,
+  .ball_grad_01,
+  .ball_grad_02,
+  .mega_gradient,
+  .tratamento_card_grad,
+  .section_proof_grad,
+  .tratamento_individual_card_grad,
+  .trat_sec_nivel_grad,
+  .tecnologia_card_grad {
+    filter: blur(26px) !important;
+    contain: layout style paint;
+    transform: translateZ(0);
+  }
+
+  .cta_grad,
+  .cta_grad_secondary,
+  .cta_grad_ind,
+  .cta_ind_grad,
+  .wl-submit-aura,
+  .adm-submit-aura {
+    filter: blur(12px) !important;
+  }
+}
+
+/* On phones (<= 768px), avoid expensive fullscreen backdrop-filter compositing passes */
+@media screen and (max-width: 768px) {
+  .wl-bar,
+  .adm-header,
+  .adm-drawer-backdrop,
+  .adm-modal-overlay,
+  .ag-overlay,
+  .ff-overlay,
+  .wl-visual-caption {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .wl-bar {
+    background-color: rgba(247, 245, 241, 0.97) !important;
+  }
+
+  .adm-header {
+    background-color: rgba(247, 245, 241, 0.98) !important;
+  }
+
+  html[data-theme="dark"] .adm-header {
+    background-color: rgba(21, 18, 26, 0.98) !important;
+  }
+
+  .ff-overlay {
+    background: rgba(4, 9, 9, 0.88) !important;
+  }
+
+  /* Replace double GPU drop-shadow filters on Focus Frame corners with fast single shadow */
+  .ff-corner {
+    filter: drop-shadow(0 0 6px rgba(22, 230, 118, 0.72)) !important;
+  }
+
+  /* Disable continuous shimmer sweep animation on phones to conserve GPU & battery */
+  .ff-cta-float-btn::after {
+    animation: none !important;
+    display: none !important;
+  }
+
+  /* Ensure marquee wrapper never causes horizontal overflow reflow on mobile */
+  .tratamentos_marquee_wrapper,
+  .testimonials {
+    contain: layout paint;
+  }
+}
+
+/* Respect OS reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
